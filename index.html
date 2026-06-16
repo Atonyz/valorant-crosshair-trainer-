@@ -8,7 +8,7 @@
         * { box-sizing: border-box; user-select: none; }
         body {
             margin: 0; padding: 0;
-            background-color: #101823;
+            background-color: #101823; /* โทนสีแดง-ดำ สไตล์ Valorant */
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: #ece8e1;
             overflow: hidden;
@@ -59,9 +59,9 @@
     <canvas id="game-canvas" width="1024" height="576"></canvas>
 
     <div id="instructions">
-        คลิกเพื่อ <span class="highlight">LOCK MOUSE</span> | หมุนได้ <span class="highlight">360 องศา</span><br>
-        ความเร็วจำลอง <span class="highlight">Valorant Full Run Peek (5.4 m/s)</span> ความไวแสง!<br>
-        กดยิงให้โดนหัวสีเหลือง! (คลิกเพื่อเริ่มรอบใหม่)
+        คลิกเพื่อ <span class="highlight">LOCK MOUSE</span> | หมุนเมาส์ได้ <span class="highlight">360 องศา</span><br>
+        ความเร็วจำลอง <span class="highlight">Valorant Full Run Peek (5.4 m/s)</span> โผล่สุ่มซ้าย/ขวา!<br>
+        กดยิงให้โดนหัวสีเหลือง! (คลิกหลังจากจบตาเพื่อเริ่มรอบใหม่)
     </div>
 
     <script>
@@ -71,24 +71,24 @@
         const statusDisplay = document.getElementById('status-display');
         const timeDisplay = document.getElementById('time-display');
 
-        // --- Configuration ---
+        // --- ตั้งค่าระบบมุมกล้องและการควบคุม ---
         let valorantSens = parseFloat(sensInput.value);
         const rotationMultiplier = 4; 
-        const worldWidth = 360 * rotationMultiplier; 
+        const worldWidth = 360 * rotationMultiplier; // ความกว้างของโลกจำลอง 360 องศา
         let cameraX = 0; 
 
-        // Game State
+        // สถานะเกม
         let isLocked = false;
         let gameState = 'waiting'; 
         let popTimeout = null;
         let spawnTime = 0;
 
-        // T-Junction Layout (จากรูปภาพของผู้ใช้)
-        const leftWallX = -180; // ขอบกำแพงฝั่งซ้าย
-        const rightWallX = 180; // ขอบกำแพงฝั่งขวา
-        const openAreaY = 350;  
+        // โครงสร้างด่าน T-Junction (อิงตามรูปวาดของคุณ)
+        const leftWallX = -180;  // ขอบกำแพงซ้ายใน World Space
+        const rightWallX = 180; // ขอบกำแพงขวาใน World Space
+        const openAreaY = 350;  // พื้นทางเดินด้านหลังที่บอทวิ่งผ่าน
 
-        // Enemy Properties
+        // คุณสมบัติของบอทศัตรู
         let enemy = {
             x: 0,
             y: openAreaY,
@@ -96,11 +96,11 @@
             height: 125,
             headRadius: 12,
             speedX: 0,       
-            direction: 1,    
+            direction: 1,    // 1 = ซ้ายไปขวา, -1 = ขวาไปซ้าย
             isMoving: false
         };
 
-        // --- Event Listeners ---
+        // --- Event Listeners ควบคุมเมาส์ ---
         canvas.addEventListener('click', () => {
             if (!isLocked) {
                 canvas.requestPointerLock();
@@ -122,10 +122,12 @@
             }
         });
 
+        // ระบบคำนวณการหันเมาส์แบบ 360 องศาสมจริง
         document.addEventListener('mousemove', (e) => {
             if (!isLocked) return;
             const deltaX = e.movementX * (valorantSens * rotationMultiplier);
             cameraX += deltaX;
+            // ใช้ Modulo ล็อคให้วนลูปเมื่อหันครบหนึ่งรอบแบบไร้รอยต่อ
             cameraX = (cameraX + worldWidth * 1.5) % worldWidth - worldWidth / 2;
         });
 
@@ -133,7 +135,7 @@
             valorantSens = parseFloat(sensInput.value) || 0.4;
         });
 
-        // --- Game Logic ---
+        // --- ฟังก์ชันระบบเกม ---
         function resetRound() {
             gameState = 'holding';
             statusDisplay.innerText = "HOLDING ANGLE";
@@ -141,6 +143,7 @@
             enemy.isMoving = false;
 
             if (popTimeout) clearTimeout(popTimeout);
+            // สุ่มเวลาหน่วงก่อนบอทพุ่งออกมา (1.2 - 3 วินาที)
             popTimeout = setTimeout(spawnEnemy, 1200 + Math.random() * 1800);
         }
 
@@ -155,19 +158,18 @@
             statusDisplay.innerText = "PEEK!";
             statusDisplay.style.color = "#00fca6";
 
+            // สุ่มฝั่งเกิด 50/50 ตามรูปลูกศรแดงและดำของคุณ
             const spawnLeft = Math.random() > 0.5;
             
-            // ปรับระดับความเร็ว (Speed Matrix):
-            // 28-34 pixels/frame โผล่พ้นกำแพงในเสี้ยววินาที ข้ามฉากในเวลาประมาณ ~200-300ms 
-            // ใกล้เคียงกับเน็ตปิงต่ำๆ บวกกับคนวิ่งโผล่หน้าต่างตัดมุมในวาโรเลยครับ
+            // ความเร็วระดับจำลองการวิ่งสปีดสูงสุดในวาโรเรน (28-34 พิกเซลต่อเฟรม)
             const valorantRunSpeed = 28 + Math.random() * 6; 
 
             if (spawnLeft) {
-                enemy.x = leftWallX - 50; // ชิดขอบเตรียมพุ่ง
+                enemy.x = leftWallX - 50; // หลบหลังกำแพงซ้าย
                 enemy.direction = 1;
                 enemy.speedX = valorantRunSpeed;
             } else {
-                enemy.x = rightWallX + 50; 
+                enemy.x = rightWallX + 50; // หลบหลังกำแพงขวา
                 enemy.direction = -1;
                 enemy.speedX = -valorantRunSpeed;
             }
@@ -180,8 +182,113 @@
             const centerX = canvas.width / 2;
             const centerY = canvas.height / 2;
 
+            // ตำแหน่งหัวของบอทใน World Space
             const headWorldX = enemy.x + enemy.width / 2;
             const headWorldY = enemy.y - enemy.height / 2 + enemy.headRadius;
 
             if (gameState === 'popped') {
-                const reactionTime = Math.round(performance.now() - spawn
+                const reactionTime = Math.round(performance.now() - spawnTime);
+
+                // ตรวจจับพิกัดชนเป้าเล็ง (Center จอ เทียบกับพิกัดบอทและมุมกล้อง)
+                const dx = (centerX - headWorldX - cameraX);
+                const dy = (centerY - headWorldY);
+                const distToHead = Math.hypot(dx, dy);
+
+                // ชดเชยความไวเฟรมเรตบนหน้าเว็บให้เล็กน้อย (+8 พิกเซล)
+                if (distToHead <= enemy.headRadius + 8) { 
+                    gameState = 'shot';
+                    statusDisplay.innerText = "HEADSHOT!";
+                    statusDisplay.style.color = "#00fca6";
+                    timeDisplay.innerText = `${reactionTime} ms`;
+                    timeDisplay.className = "ui-value success";
+                } else {
+                    gameState = 'missed';
+                    statusDisplay.innerText = "MISSED";
+                    statusDisplay.style.color = "#ff4655";
+                }
+                enemy.isMoving = false;
+            } else if (gameState === 'holding') {
+                // กดยิงเร็วไป (ยิงดักก่อนตัวโผล่)
+                if (popTimeout) clearTimeout(popTimeout);
+                gameState = 'missed';
+                statusDisplay.innerText = "TOO EARLY!";
+                statusDisplay.style.color = "#ff4655";
+            }
+        }
+
+        // --- ส่วนการวาดภาพบน Canvas ---
+        function update() {
+            if (enemy.isMoving) {
+                enemy.x += enemy.speedX;
+
+                // ตรวจถ้าบอทวิ่งเลยขอบจอไปโดยยิงไม่ทัน
+                if ((enemy.direction === 1 && enemy.x > rightWallX + 500) || 
+                    (enemy.direction === -1 && enemy.x < leftWallX - 500)) {
+                    gameState = 'missed';
+                    statusDisplay.innerText = "TOO SLOW!";
+                    statusDisplay.style.color = "#ff4655";
+                    enemy.isMoving = false;
+                }
+            }
+
+            // เคลียร์หน้าจอพื้นหลัง
+            ctx.fillStyle = '#1e2833';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            ctx.translate(cameraX, 0); // เลื่อนฉากตามเมาส์ที่หัน
+
+            // วาดเส้นแนวพื้นทางเดินด้านหลัง
+            ctx.strokeStyle = '#3f5165';
+            ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.moveTo(-2000, openAreaY); ctx.lineTo(2000, openAreaY); ctx.stroke();
+
+            // วาดตัวบอท (ต้องวาดก่อนกำแพง เพื่อให้กำแพงบังตอนแอบ)
+            if (gameState === 'popped' || gameState === 'shot' || gameState === 'missed') {
+                // ลำตัวสีแดงใสโปร่งแสง
+                ctx.fillStyle = 'rgba(255, 70, 85, 0.85)';
+                ctx.strokeStyle = '#ff4655';
+                ctx.lineWidth = 2;
+                ctx.fillRect(enemy.x, enemy.y - enemy.height/2, enemy.width, enemy.height/2);
+                ctx.strokeRect(enemy.x, enemy.y - enemy.height/2, enemy.width, enemy.height/2);
+
+                // หัวสีเหลือง (เป้าหมายหลัก)
+                const headX = enemy.x + enemy.width / 2;
+                const headY = enemy.y - enemy.height/2 + enemy.headRadius;
+                ctx.fillStyle = '#fff000';
+                ctx.beginPath(); ctx.arc(headX, headY, enemy.headRadius, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = '#ffae00'; ctx.stroke();
+            }
+
+            // วาดบล็อกกำแพงหนาทึบจำลองทางสามแพร่ง (T-Junction)
+            ctx.fillStyle = '#0f1923'; 
+            ctx.fillRect(-2000, 0, 2000 + leftWallX, canvas.height); // บล็อกกำแพงฝั่งซ้าย
+            ctx.fillRect(rightWallX, 0, 2000, canvas.height);        // บล็อกกำแพงฝั่งขวา
+
+            // วาดเส้นสีแดงไฮไลท์ที่ขอบมุมตึกเพื่อช่วยฝึกเรื่อง Crosshair Placement
+            ctx.strokeStyle = '#ff4655';
+            ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.moveTo(leftWallX, 0); ctx.lineTo(leftWallX, canvas.height); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(rightWallX, 0); ctx.lineTo(rightWallX, canvas.height); ctx.stroke();
+
+            ctx.restore();
+
+            // วาดเป้าเล็งเล็งเขียวสไตล์ Valorant (Default 1-4-2-2) ล็อคกลางจอ
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const len = 6; const thick = 2; const gap = 3;
+
+            ctx.fillStyle = '#00fca6';
+            ctx.fillRect(cx - thick/2, cy - gap - len, thick, len); // เส้นบน
+            ctx.fillRect(cx - thick/2, cy + gap, thick, len);       // เส้นล่าง
+            ctx.fillRect(cx - gap - len, cy - thick/2, len, thick); // เส้นซ้าย
+            ctx.fillRect(cx + gap, cy - thick/2, len, thick);       // เส้นขวา
+
+            requestAnimationFrame(update);
+        }
+
+        // เริ่มต้นรันโปรแกรมเกม
+        update();
+    </script>
+</body>
+</html>
