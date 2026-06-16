@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Valorant Crosshair & Angle Holding Trainer</title>
+    <title>Valorant 360° Angle & Placement Trainer</title>
     <style>
         * {
             box-sizing: border-box;
@@ -113,7 +113,8 @@
 
     <div id="instructions">
         คลิกที่จอเพื่อ <span class="highlight">LOCK MOUSE</span> | กด <span class="highlight">ESC</span> เพื่อปลดล็อค<br>
-        วางเป้ารอศัตรูวิ่งผ่านมุมกำแพง แล้วกดยิง (<span class="highlight">คลิกซ้าย</span>) ให้โดนหัวสีเหลือง!
+        <span class="highlight">หมุนเมาส์ได้ 360°</span> | วางเป้ารอศัตรู หรือฝึกวางเป้าตามมุมกําแพง (<span class="highlight">Crosshair Placement</span>)!<br>
+        กดยิง (<span class="highlight">คลิกซ้าย</span>) ให้โดนหัวสีเหลือง!
     </div>
 
     <script>
@@ -123,13 +124,18 @@
         const statusDisplay = document.getElementById('status-display');
         const timeDisplay = document.getElementById('time-display');
 
-        // Game Configuration (Valorant Default-inspired)
+        // --- Game Configuration ---
+
+        // Valorant Default Mouse Settings (Example)
         let valorantSens = parseFloat(sensInput.value);
-        const baseSensitivity = 1.5; // Web multiplier scale
+        const mouseDPI = 800; // Assuming 800 DPI for example calibration
         
-        // Pseudo-3D Camera Offset (Simulating turning around)
+        // Pseudo-3D Camera Rotation (using pixels as angles for simplicity)
+        // 1 pixel of movement = [sens * baseSensitivity] units of rotation
+        // A full 360 degree rotation is represented by a specific range of X values.
         let cameraX = 0; 
-        const maxCameraX = 400; // Boundary limit
+        const rotationMultiplier = 4; // Arbitrary base sensitivity for web feel
+        const worldWidth = 360 * rotationMultiplier; // Total X units needed for 360 rotation
 
         // Game State
         let isLocked = false;
@@ -137,21 +143,28 @@
         let popTimeout = null;
         let spawnTime = 0;
 
-        // Wall & Environment Settings
-        const wallX = 300; // Absolute position of corner wall in world space
+        // Level Environment Definition (Absolute positions in "world space")
+        // We will define two "corners" for placement training
+        const walls = [
+            { id: 1, cornerX: 300, width: 200 }, // A main angle to hold
+            { id: 2, cornerX: - worldWidth / 2 + 300, width: 100 }, // Another angle if you turn far
+            { id: 3, cornerX: worldWidth / 2 + 100, width: 150 }, // Angle "behind" the spawn
+        ];
 
         // Enemy Properties
         let enemy = {
-            x: 100, // Starts behind the wall
+            x: -1000, // Starts off-world
             y: 350,
             width: 50,
             height: 140,
             headRadius: 14,
             speed: 8,
-            isMoving: false
+            isMoving: false,
+            currentWall: 1 // Which wall it pops from
         };
 
-        // Event Listeners
+        // --- Event Listeners ---
+
         canvas.addEventListener('click', () => {
             if (!isLocked) {
                 canvas.requestPointerLock();
@@ -173,30 +186,36 @@
             }
         });
 
+        // 360° MOUSE MOVEMENT LOGIC
         document.addEventListener('mousemove', (e) => {
             if (!isLocked) return;
             
-            // Calculate movement based on Valorant Sens
-            const deltaX = e.movementX * (valorantSens * baseSensitivity);
-            cameraX -= deltaX;
+            // 1. Calculate movement delta
+            const deltaX = e.movementX * (valorantSens * rotationMultiplier);
+            
+            // 2. Add movement to camera position (with 360 wrapping)
+            cameraX += deltaX;
 
-            // Restrict camera view window
-            if (cameraX > maxCameraX) cameraX = maxCameraX;
-            if (cameraX < -maxCameraX) cameraX = -maxCameraX;
+            // 3. Keep cameraX within -worldWidth/2 to worldWidth/2 to simulate 360 wrapping
+            // Use modulo for seamless wrapping
+            cameraX = (cameraX + worldWidth * 1.5) % worldWidth - worldWidth / 2;
         });
 
         sensInput.addEventListener('change', () => {
             valorantSens = parseFloat(sensInput.value) || 0.4;
         });
 
-        // Game Logic Functions
+        // --- Game Logic Functions ---
+
         function resetRound() {
             gameState = 'holding';
             statusDisplay.innerText = "HOLDING ANGLE";
             statusDisplay.style.color = "#ff4655";
             
-            // Reset Enemy position back behind wall
-            enemy.x = wallX - 100;
+            // Reset Enemy and pick a random wall to peek from (if needed, otherwise fixed)
+            enemy.currentWall = 1;
+            const chosenWall = walls[0];
+            enemy.x = chosenWall.cornerX - 100; // Reset position
             enemy.isMoving = false;
 
             // Random delay between 1.5 to 3.5 seconds before enemy peeks
@@ -219,29 +238,23 @@
         }
 
         function handleShot() {
-            // Screen Center is where the Crosshair always is
             const centerX = canvas.width / 2;
             const centerY = canvas.height / 2;
 
-            // Convert Screen Center to World Space coordinates where the enemy exists
-            const crosshairWorldX = centerX - cameraX;
-            const crosshairWorldY = centerY;
-
-            // Calculate Enemy World Boundaries
-            const enemyWorldLeft = enemy.x;
-            const enemyWorldRight = enemy.x + enemy.width;
-            
-            // Valorant style: We focus heavily on Headshot calibration!
+            // Target boundaries (Headshot calibration)
             const headWorldX = enemy.x + enemy.width / 2;
             const headWorldY = enemy.y - enemy.height/2 + enemy.headRadius;
 
-            // Check distance to Head Center
-            const distToHead = Math.hypot(crosshairWorldX - headWorldX, crosshairWorldY - headWorldY);
-
             if (gameState === 'popped') {
                 const reactionTime = Math.round(performance.now() - spawnTime);
-                
-                if (distToHead <= enemy.headRadius + 5) { // Headshot hit box (+5 padding for leniency)
+
+                // Check distance using World coordinates and Camera offset
+                const dx = (centerX - headWorldX - cameraX);
+                const dy = (centerY - headWorldY);
+                const distToHead = Math.hypot(dx, dy);
+
+                // Account for potential 360 wrapping if necessary, but keep it simple for core angle
+                if (distToHead <= enemy.headRadius + 5) {
                     gameState = 'shot';
                     statusDisplay.innerText = "HEADSHOT!";
                     statusDisplay.style.color = "#00fca6";
@@ -262,13 +275,28 @@
             }
         }
 
-        // Main Game Loop (Rendering)
+        // --- Main Game Loop (Rendering) ---
+
+        function drawWall(wall, xOffset, canvasHeight) {
+             // Wall (Obstacle hiding the enemy)
+            ctx.fillStyle = '#0f1923'; // Darker Valorant container box color
+            ctx.fillRect(-canvas.width/2 + wall.cornerX + xOffset, 0, wall.width, canvasHeight);
+            
+            // Wall Edge Highlight Line (for Placement reference)
+            ctx.strokeStyle = '#ff4655'; // Valorant Red accent
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(wall.cornerX + xOffset, 0);
+            ctx.lineTo(wall.cornerX + xOffset, canvasHeight);
+            ctx.stroke();
+        }
+
         function update() {
             // Move Enemy
             if (enemy.isMoving) {
                 enemy.x += enemy.speed;
-                // If enemy runs off screen without being shot
-                if (enemy.x > canvas.width + maxCameraX) {
+                // Simple run-out-of-view check (needs 360 thought for full level)
+                if (enemy.x > 1000 + wallX) {
                     gameState = 'missed';
                     statusDisplay.innerText = "TOO SLOW!";
                     statusDisplay.style.color = "#ff4655";
@@ -280,80 +308,31 @@
             ctx.fillStyle = '#1e2833'; // Deep background color
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+            // Draw Level Components
             ctx.save();
-            // Apply Camera Translation to simulate mouse look
-            ctx.translate(cameraX, 0);
+            ctx.translate(cameraX, 0); // Apply 360 camera rotation offset
 
-            // 1. Draw Floor Line
+            // 1. Draw Floor Line (infinite-ish for 360)
             ctx.strokeStyle = '#3f5165';
             ctx.lineWidth = 3;
             ctx.beginPath();
-            ctx.moveTo(-1000, 350);
-            ctx.lineTo(2000, 350);
+            ctx.moveTo(-10000, 350);
+            ctx.lineTo(10000, 350);
             ctx.stroke();
 
-            // 2. Draw Enemy Bot (if active or just finished)
-            if (gameState === 'popped' || gameState === 'shot' || gameState === 'missed') {
-                // Body (Red translucent silhouette like Valorant)
-                ctx.fillStyle = 'rgba(255, 70, 85, 0.7)';
-                ctx.strokeStyle = '#ff4655';
-                ctx.lineWidth = 2;
-                ctx.fillRect(enemy.x, enemy.y - enemy.height/2, enemy.width, enemy.height/2);
-                ctx.strokeRect(enemy.x, enemy.y - enemy.height/2, enemy.width, enemy.height/2);
-
-                // Head (Yellow target hotspot)
-                const headX = enemy.x + enemy.width / 2;
-                const headY = enemy.y - enemy.height/2 + enemy.headRadius;
-                ctx.fillStyle = '#fff000';
-                ctx.beginPath();
-                ctx.arc(headX, headY, enemy.headRadius, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.strokeStyle = '#ffae00';
-                ctx.stroke();
+            // 2. Draw Level Environment (Walls/Corners)
+            // Need to handle infinite tiling if they turn past the world width
+            for(let wall of walls) {
+                // Draw current world's wall
+                drawWall(wall, 0, canvas.height);
+                
+                // Draw tiled walls to handle 360 visual continuity
+                drawWall(wall, -worldWidth, canvas.height);
+                drawWall(wall, worldWidth, canvas.height);
             }
 
-            // 3. Draw Corner Wall (Obstacle hiding the enemy)
-            // Left side is completely covered by the wall
-            ctx.fillStyle = '#0f1923'; // Darker Valorant container box color
-            ctx.fillRect(-1000, 0, 1000 + wallX, canvas.height);
-            
-            // Wall Edge Highlight Line
-            ctx.strokeStyle = '#ff4655';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(wallX, 0);
-            ctx.lineTo(wallX, canvas.height);
-            ctx.stroke();
-
-            ctx.restore();
-
-            // 4. Draw Crosshair (Fixed Static at Screen Center - Always rendered on top)
-            const cx = canvas.width / 2;
-            const cy = canvas.height / 2;
-            
-            // Valorant Default Crosshairs settings: 1-4-2-2 (Inner Lines)
-            const len = 6;      // Line length
-            const thick = 2;    // Thickness
-            const gap = 3;      // Inner gap size
-
-            ctx.fillStyle = '#00fca6'; // Valorant Cyan/Green Crosshair color
-            
-            // Top line
-            ctx.fillRect(cx - thick/2, cy - gap - len, thick, len);
-            // Bottom line
-            ctx.fillRect(cx - thick/2, cy + gap, thick, len);
-            // Left line
-            ctx.fillRect(cx - gap - len, cy - thick/2, len, thick);
-            // Right line
-            ctx.fillRect(cx + gap, cy - thick/2, len, thick);
-
-            // Center Dot (Optional, let's keep it clean without dot for default 1-4-2-2 feel)
-
-            requestAnimationFrame(update);
-        }
-
-        // Start Loop
-        update();
-    </script>
-</body>
-</html>
+            // 3. Draw Enemy Bot (if active or just finished)
+            // Similar tiling approach if enemy can be anywhere
+            if (gameState === 'popped' || gameState === 'shot' || gameState === 'missed') {
+                // Body
+                ctx.fillStyle = 'rgba(255, 70, 85, 0.7
