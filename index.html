@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Valorant Crosshair & Angle Holding Trainer</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #101823; /* Valorant Dark Blue/Black */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #ece8e1; /* Valorant Off-White */
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        #ui-container {
+            position: absolute;
+            top: 20px;
+            display: flex;
+            gap: 20px;
+            background: rgba(15, 25, 35, 0.85); /* Valorant Menu UI Color */
+            padding: 15px 25px;
+            border-radius: 4px;
+            border-left: 4px solid #ff4655; /* Valorant Red accent */
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            z-index: 10;
+        }
+        .ui-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .ui-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #768079;
+            margin-bottom: 5px;
+        }
+        .ui-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #ece8e1;
+        }
+        .ui-input {
+            background: #202e3f;
+            border: 1px solid #445365;
+            color: #ece8e1;
+            padding: 5px;
+            width: 70px;
+            text-align: center;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 2px;
+        }
+        .ui-input:focus {
+            outline: none;
+            border-color: #ff4655;
+        }
+        #game-canvas {
+            background-color: #2b3945; /* Simulated Shooting Range Wall */
+            cursor: none;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+            border: 2px solid #3f5165;
+        }
+        #instructions {
+            position: absolute;
+            bottom: 30px;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 20px;
+            border-radius: 3px;
+            pointer-events: none;
+            font-size: 14px;
+            letter-spacing: 1px;
+        }
+        .highlight {
+            color: #ff4655;
+            font-weight: bold;
+        }
+        .success {
+            color: #00fca6;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-container">
+        <div class="ui-box">
+            <span class="ui-label">Valorant Sens</span>
+            <input type="number" id="sens-input" class="ui-input" value="0.4" step="0.05" min="0.01">
+        </div>
+        <div class="ui-box">
+            <span class="ui-label">Status</span>
+            <span id="status-display" class="ui-value">WAITING</span>
+        </div>
+        <div class="ui-box">
+            <span class="ui-label">Reaction Time</span>
+            <span id="time-display" class="ui-value">-- ms</span>
+        </div>
+    </div>
+
+    <canvas id="game-canvas" width="1024" height="576"></canvas>
+
+    <div id="instructions">
+        คลิกที่จอเพื่อ <span class="highlight">LOCK MOUSE</span> | กด <span class="highlight">ESC</span> เพื่อปลดล็อค<br>
+        วางเป้ารอศัตรูวิ่งผ่านมุมกำแพง แล้วกดยิง (<span class="highlight">คลิกซ้าย</span>) ให้โดนหัวสีเหลือง!
+    </div>
+
+    <script>
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        const sensInput = document.getElementById('sens-input');
+        const statusDisplay = document.getElementById('status-display');
+        const timeDisplay = document.getElementById('time-display');
+
+        // Game Configuration (Valorant Default-inspired)
+        let valorantSens = parseFloat(sensInput.value);
+        const baseSensitivity = 1.5; // Web multiplier scale
+        
+        // Pseudo-3D Camera Offset (Simulating turning around)
+        let cameraX = 0; 
+        const maxCameraX = 400; // Boundary limit
+
+        // Game State
+        let isLocked = false;
+        let gameState = 'waiting'; // waiting, holding, popped, shot, missed
+        let popTimeout = null;
+        let spawnTime = 0;
+
+        // Wall & Environment Settings
+        const wallX = 300; // Absolute position of corner wall in world space
+
+        // Enemy Properties
+        let enemy = {
+            x: 100, // Starts behind the wall
+            y: 350,
+            width: 50,
+            height: 140,
+            headRadius: 14,
+            speed: 8,
+            isMoving: false
+        };
+
+        // Event Listeners
+        canvas.addEventListener('click', () => {
+            if (!isLocked) {
+                canvas.requestPointerLock();
+            } else if (gameState === 'holding' || gameState === 'popped') {
+                handleShot();
+            } else if (gameState === 'shot' || gameState === 'missed' || gameState === 'waiting') {
+                resetRound();
+            }
+        });
+
+        document.addEventListener('pointerlockchange', () => {
+            isLocked = (document.pointerLockElement === canvas);
+            if (!isLocked) {
+                statusDisplay.innerText = "PAUSED";
+                statusDisplay.style.color = "#ece8e1";
+                stopRound();
+            } else {
+                resetRound();
+            }
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isLocked) return;
+            
+            // Calculate movement based on Valorant Sens
+            const deltaX = e.movementX * (valorantSens * baseSensitivity);
+            cameraX -= deltaX;
+
+            // Restrict camera view window
+            if (cameraX > maxCameraX) cameraX = maxCameraX;
+            if (cameraX < -maxCameraX) cameraX = -maxCameraX;
+        });
+
+        sensInput.addEventListener('change', () => {
+            valorantSens = parseFloat(sensInput.value) || 0.4;
+        });
+
+        // Game Logic Functions
+        function resetRound() {
+            gameState = 'holding';
+            statusDisplay.innerText = "HOLDING ANGLE";
+            statusDisplay.style.color = "#ff4655";
+            
+            // Reset Enemy position back behind wall
+            enemy.x = wallX - 100;
+            enemy.isMoving = false;
+
+            // Random delay between 1.5 to 3.5 seconds before enemy peeks
+            if (popTimeout) clearTimeout(popTimeout);
+            popTimeout = setTimeout(spawnEnemy, 1500 + Math.random() * 2000);
+        }
+
+        function stopRound() {
+            if (popTimeout) clearTimeout(popTimeout);
+            enemy.isMoving = false;
+        }
+
+        function spawnEnemy() {
+            if (gameState !== 'holding') return;
+            gameState = 'popped';
+            statusDisplay.innerText = "PEEK!";
+            statusDisplay.style.color = "#00fca6";
+            enemy.isMoving = true;
+            spawnTime = performance.now();
+        }
+
+        function handleShot() {
+            // Screen Center is where the Crosshair always is
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+
+            // Convert Screen Center to World Space coordinates where the enemy exists
+            const crosshairWorldX = centerX - cameraX;
+            const crosshairWorldY = centerY;
+
+            // Calculate Enemy World Boundaries
+            const enemyWorldLeft = enemy.x;
+            const enemyWorldRight = enemy.x + enemy.width;
+            
+            // Valorant style: We focus heavily on Headshot calibration!
+            const headWorldX = enemy.x + enemy.width / 2;
+            const headWorldY = enemy.y - enemy.height/2 + enemy.headRadius;
+
+            // Check distance to Head Center
+            const distToHead = Math.hypot(crosshairWorldX - headWorldX, crosshairWorldY - headWorldY);
+
+            if (gameState === 'popped') {
+                const reactionTime = Math.round(performance.now() - spawnTime);
+                
+                if (distToHead <= enemy.headRadius + 5) { // Headshot hit box (+5 padding for leniency)
+                    gameState = 'shot';
+                    statusDisplay.innerText = "HEADSHOT!";
+                    statusDisplay.style.color = "#00fca6";
+                    timeDisplay.innerText = `${reactionTime} ms`;
+                    timeDisplay.className = "ui-value success";
+                } else {
+                    gameState = 'missed';
+                    statusDisplay.innerText = "MISSED";
+                    statusDisplay.style.color = "#ff4655";
+                }
+                enemy.isMoving = false;
+            } else if (gameState === 'holding') {
+                // Prefire too early
+                if (popTimeout) clearTimeout(popTimeout);
+                gameState = 'missed';
+                statusDisplay.innerText = "TOO EARLY!";
+                statusDisplay.style.color = "#ff4655";
+            }
+        }
+
+        // Main Game Loop (Rendering)
+        function update() {
+            // Move Enemy
+            if (enemy.isMoving) {
+                enemy.x += enemy.speed;
+                // If enemy runs off screen without being shot
+                if (enemy.x > canvas.width + maxCameraX) {
+                    gameState = 'missed';
+                    statusDisplay.innerText = "TOO SLOW!";
+                    statusDisplay.style.color = "#ff4655";
+                    enemy.isMoving = false;
+                }
+            }
+
+            // Clear Screen
+            ctx.fillStyle = '#1e2833'; // Deep background color
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            // Apply Camera Translation to simulate mouse look
+            ctx.translate(cameraX, 0);
+
+            // 1. Draw Floor Line
+            ctx.strokeStyle = '#3f5165';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(-1000, 350);
+            ctx.lineTo(2000, 350);
+            ctx.stroke();
+
+            // 2. Draw Enemy Bot (if active or just finished)
+            if (gameState === 'popped' || gameState === 'shot' || gameState === 'missed') {
+                // Body (Red translucent silhouette like Valorant)
+                ctx.fillStyle = 'rgba(255, 70, 85, 0.7)';
+                ctx.strokeStyle = '#ff4655';
+                ctx.lineWidth = 2;
+                ctx.fillRect(enemy.x, enemy.y - enemy.height/2, enemy.width, enemy.height/2);
+                ctx.strokeRect(enemy.x, enemy.y - enemy.height/2, enemy.width, enemy.height/2);
+
+                // Head (Yellow target hotspot)
+                const headX = enemy.x + enemy.width / 2;
+                const headY = enemy.y - enemy.height/2 + enemy.headRadius;
+                ctx.fillStyle = '#fff000';
+                ctx.beginPath();
+                ctx.arc(headX, headY, enemy.headRadius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#ffae00';
+                ctx.stroke();
+            }
+
+            // 3. Draw Corner Wall (Obstacle hiding the enemy)
+            // Left side is completely covered by the wall
+            ctx.fillStyle = '#0f1923'; // Darker Valorant container box color
+            ctx.fillRect(-1000, 0, 1000 + wallX, canvas.height);
+            
+            // Wall Edge Highlight Line
+            ctx.strokeStyle = '#ff4655';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(wallX, 0);
+            ctx.lineTo(wallX, canvas.height);
+            ctx.stroke();
+
+            ctx.restore();
+
+            // 4. Draw Crosshair (Fixed Static at Screen Center - Always rendered on top)
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            
+            // Valorant Default Crosshairs settings: 1-4-2-2 (Inner Lines)
+            const len = 6;      // Line length
+            const thick = 2;    // Thickness
+            const gap = 3;      // Inner gap size
+
+            ctx.fillStyle = '#00fca6'; // Valorant Cyan/Green Crosshair color
+            
+            // Top line
+            ctx.fillRect(cx - thick/2, cy - gap - len, thick, len);
+            // Bottom line
+            ctx.fillRect(cx - thick/2, cy + gap, thick, len);
+            // Left line
+            ctx.fillRect(cx - gap - len, cy - thick/2, len, thick);
+            // Right line
+            ctx.fillRect(cx + gap, cy - thick/2, len, thick);
+
+            // Center Dot (Optional, let's keep it clean without dot for default 1-4-2-2 feel)
+
+            requestAnimationFrame(update);
+        }
+
+        // Start Loop
+        update();
+    </script>
+</body>
+</html>
